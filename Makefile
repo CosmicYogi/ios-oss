@@ -4,12 +4,13 @@ BUILD_FLAGS = -scheme $(SCHEME) -destination $(DESTINATION)
 SCHEME ?= $(TARGET)-$(PLATFORM)
 TARGET ?= Kickstarter-Framework
 PLATFORM ?= iOS
+OS ?= 10.2
 RELEASE ?= beta
 BRANCH ?= master
 DIST_BRANCH = $(RELEASE)-dist
 
 ifeq ($(PLATFORM),iOS)
-	DESTINATION ?= 'platform=iOS Simulator,name=iPhone 6,OS=9.3'
+	DESTINATION ?= 'platform=iOS Simulator,name=iPhone 7,OS=10.2'
 endif
 
 XCPRETTY :=
@@ -33,15 +34,13 @@ test: bootstrap
 clean:
 	$(XCODEBUILD) clean $(BUILD_FLAGS) $(XCPRETTY)
 
-dependencies: submodules configs secrets
+dependencies: submodules configs secrets opentok
 
 bootstrap: hooks dependencies
-	sudo xcode-select -s /Applications/Xcode-8.2.app
 	brew update || brew update
 	brew unlink swiftlint || true
 	brew install swiftlint
 	brew link --overwrite swiftlint
-	sudo xcode-select -s /Applications/Xcode-7.3.app
 
 submodules:
 	git submodule sync --recursive || true
@@ -61,6 +60,16 @@ $(hooks):
 hooks: $(hooks)
 
 deploy:
+	@echo "Deploying private/$(BRANCH) to $(RELEASE)..."
+
+	@git fetch oss
+	@git fetch private
+
+	@if test -n "`git rev-list private/$(BRANCH)..oss/$(BRANCH)`"; \
+	then \
+		echo "There are commits in oss/$(BRANCH) that are not in private/$(BRANCH). Please sync the remotes before deploying."; \
+		exit 1; \
+	fi
 	@if test "$(RELEASE)" != "beta" && test "$(RELEASE)" != "itunes"; \
 	then \
 		echo "RELEASE must be 'beta' or 'itunes'."; \
@@ -72,18 +81,18 @@ deploy:
 		exit 1; \
 	fi
 
-	git fetch origin
-	git branch -f $(DIST_BRANCH) origin/$(BRANCH)
-	git push -f origin $(DIST_BRANCH)
-	git branch -d $(DIST_BRANCH)
+	@git branch -f $(DIST_BRANCH) private/$(BRANCH)
+	@git push -f private $(DIST_BRANCH)
+	@git branch -d $(DIST_BRANCH)
+
+	@echo "Deploy has been kicked off to CircleCI!"
 
 lint:
-	sudo xcode-select -s /Applications/Xcode-8.2.app
-	swiftlint lint --reporter json
-	sudo xcode-select -s /Applications/Xcode-7.3.app
+	swiftlint lint --reporter json --strict
 
 strings:
-	cat Frameworks/ios-ksapi/Frameworks/native-secrets/ios/Secrets.swift bin/strings.swift | swift -
+	cat Frameworks/ios-ksapi/Frameworks/native-secrets/ios/Secrets.swift bin/strings.swift \
+		| xcrun -sdk macosx swift -
 
 secrets:
 	-@rm -rf Frameworks/ios-ksapi/Frameworks/native-secrets
@@ -95,4 +104,24 @@ secrets:
 		|| true; \
 	fi
 
-.PHONY: test-all test clean dependencies submodules deploy lint secrets strings
+OPENTOK_VERSION = 2.10.2
+VERSION_FILE = Frameworks/OpenTok/version
+CURRENT_OPENTOK_VERSION = $(shell cat $(VERSION_FILE))
+ifeq ($(CURRENT_OPENTOK_VERSION),)
+	CURRENT_OPENTOK_VERSION = first
+endif
+opentok:
+	@if [ $(OPENTOK_VERSION) != $(CURRENT_OPENTOK_VERSION) ]; \
+	then \
+		echo "Downloading OpenTok v$(OPENTOK_VERSION)"; \
+		mkdir -p Frameworks/OpenTok; \
+		curl -s -N -L https://tokbox.com/downloads/opentok-ios-sdk-$(OPENTOK_VERSION) \
+		| tar -xz --strip 1 --directory Frameworks/OpenTok OpenTok-iOS-$(OPENTOK_VERSION)/OpenTok.framework \
+		|| true; \
+	fi
+	@if [ -e Frameworks/OpenTok/OpenTok.framework ]; \
+	then \
+		echo "$(OPENTOK_VERSION)" > $(VERSION_FILE); \
+	fi
+
+.PHONY: test-all test clean dependencies submodules deploy lint secrets strings opentok

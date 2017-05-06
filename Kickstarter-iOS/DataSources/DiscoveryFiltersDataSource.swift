@@ -5,6 +5,7 @@ internal final class DiscoveryFiltersDataSource: ValueCellDataSource {
   internal enum Section: Int {
     case collectionsHeader
     case collections
+    case categoriesLoader
     case favoritesHeader
     case favorites
     case categoriesHeader
@@ -59,25 +60,37 @@ internal final class DiscoveryFiltersDataSource: ValueCellDataSource {
     }
   }
 
-  internal func selectableRow(indexPath indexPath: NSIndexPath) -> SelectableRow? {
+  internal func loadCategoriesLoaderRow() {
+    self.set(values: [()],
+             cellClass: DiscoveryFiltersLoaderCell.self,
+             inSection: Section.categoriesLoader.rawValue)
+  }
+
+  internal func deleteCategoriesLoaderRow() -> [IndexPath] {
+    self.clearValues(section: Section.categoriesLoader.rawValue)
+
+    return [IndexPath(row: 0, section: Section.categoriesLoader.rawValue)]
+  }
+
+  internal func selectableRow(indexPath: IndexPath) -> SelectableRow? {
     if let (row, _) = self[indexPath] as? (SelectableRow, Int?) {
       return row
     }
     return nil
   }
 
-  internal func expandableRow(indexPath indexPath: NSIndexPath) -> ExpandableRow? {
+  internal func expandableRow(indexPath: IndexPath) -> ExpandableRow? {
     if let (row, _) = self[indexPath] as? (ExpandableRow, Int?) {
       return row
     }
     return nil
   }
 
-  internal func indexPath(forCategoryId categoryId: Int?) -> NSIndexPath? {
-    for (idx, value) in self[section: Section.categories.rawValue].enumerate() {
+  internal func indexPath(forCategoryId categoryId: Int?) -> IndexPath? {
+    for (idx, value) in self[section: Section.categories.rawValue].enumerated() {
       guard let (row, _) = value as? (ExpandableRow, Int?) else { continue }
       if row.params.category?.id == categoryId {
-        return NSIndexPath(forItem: idx, inSection: Section.categories.rawValue)
+        return IndexPath(item: idx, section: Section.categories.rawValue)
       }
     }
 
@@ -85,7 +98,7 @@ internal final class DiscoveryFiltersDataSource: ValueCellDataSource {
   }
 
   internal func expandedRow() -> Int? {
-    for (idx, value) in self[section: Section.categories.rawValue].enumerate() {
+    for (idx, value) in self[section: Section.categories.rawValue].enumerated() {
       guard let (row, _) = value as? (ExpandableRow, Int?) else { continue }
 
       if row.isExpanded {
@@ -106,7 +119,8 @@ internal final class DiscoveryFiltersDataSource: ValueCellDataSource {
       cell.configureWith(value: value)
     case let (cell as DiscoveryFiltersStaticRowCell, value as (String, Int?)):
       cell.configureWith(value: value)
-      return
+    case let (cell as DiscoveryFiltersLoaderCell, value as Void):
+      cell.configureWith(value: value)
     default:
       fatalError("Unrecognized combo (\(cell), \(value)).")
     }

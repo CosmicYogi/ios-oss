@@ -4,41 +4,48 @@ import Prelude
 import UIKit
 
 internal final class SearchViewController: UITableViewController {
-  private let viewModel: SearchViewModelType = SearchViewModel()
-  private let dataSource = SearchDataSource()
+  internal let viewModel: SearchViewModelType = SearchViewModel()
+  fileprivate let dataSource = SearchDataSource()
 
-  @IBOutlet private weak var cancelButton: UIButton!
-  @IBOutlet private var searchBarCenterConstraint: NSLayoutConstraint!
-  @IBOutlet private weak var searchBarContainerView: UIView!
-  @IBOutlet private var searchBarLeadingConstraint: NSLayoutConstraint!
-  @IBOutlet private var searchBarTrailingConstraint: NSLayoutConstraint!
-  @IBOutlet private weak var searchIconImageView: UIImageView!
-  @IBOutlet private weak var searchStackView: UIStackView!
-  @IBOutlet private weak var searchTextField: UITextField!
+  @IBOutlet fileprivate weak var cancelButton: UIButton!
+  @IBOutlet fileprivate var searchBarCenterConstraint: NSLayoutConstraint!
+  @IBOutlet fileprivate weak var searchBarContainerView: UIView!
+  @IBOutlet fileprivate var searchBarLeadingConstraint: NSLayoutConstraint!
+  @IBOutlet fileprivate var searchBarTrailingConstraint: NSLayoutConstraint!
+  @IBOutlet fileprivate weak var searchIconImageView: UIImageView!
+  @IBOutlet fileprivate weak var searchStackView: UIStackView!
+  @IBOutlet fileprivate weak var searchTextField: UITextField!
+
+  private let backgroundView = UIView()
+  private let popularLoaderIndicator = UIActivityIndicatorView()
+  private let searchLoaderIndicator = UIActivityIndicatorView()
 
   internal static func instantiate() -> SearchViewController {
-    return Storyboard.Search.instantiate(SearchViewController)
+    return Storyboard.Search.instantiate(SearchViewController.self)
   }
 
   internal override func viewDidLoad() {
     super.viewDidLoad()
+
     self.tableView.dataSource = self.dataSource
+
+    self.viewModel.inputs.viewDidLoad()
   }
 
-  internal override func viewWillAppear(animated: Bool) {
+  internal override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
 
     self.cancelButton.addTarget(self,
                                 action: #selector(cancelButtonPressed),
-                                forControlEvents: .TouchUpInside)
+                                for: .touchUpInside)
 
     self.searchTextField.addTarget(self,
                                    action: #selector(searchTextChanged(_:)),
-                                   forControlEvents: .EditingChanged)
+                                   for: .editingChanged)
 
     self.searchTextField.addTarget(self,
                                    action: #selector(searchTextEditingDidEnd),
-                                   forControlEvents: .EditingDidEndOnExit)
+                                   for: .editingDidEndOnExit)
 
     self.searchBarContainerView.addGestureRecognizer(
       UITapGestureRecognizer(target: self, action: #selector(searchBarContainerTapped))
@@ -52,101 +59,152 @@ internal final class SearchViewController: UITableViewController {
   internal override func bindStyles() {
     super.bindStyles()
 
-    self
+    _ = self
       |> baseTableControllerStyle(estimatedRowHeight: 86)
-      |> SearchViewController.lens.view.backgroundColor .~ .ksr_grey_200
 
-    self.cancelButton
-      |> UIButton.lens.titleColor(forState: .Normal) .~ .ksr_text_navy_700
+    _ = [self.searchLoaderIndicator, self.popularLoaderIndicator]
+      ||> UIActivityIndicatorView.lens.hidesWhenStopped .~ true
+      ||> UIActivityIndicatorView.lens.activityIndicatorViewStyle .~ .white
+      ||> UIActivityIndicatorView.lens.color .~ .ksr_navy_900
+
+    _ = self.cancelButton
+      |> UIButton.lens.titleColor(forState: .normal) .~ .ksr_text_navy_700
       |> UIButton.lens.titleLabel.font .~ .ksr_callout(size:16)
-      |> UIButton.lens.title(forState: .Normal) %~ { _ in Strings.discovery_search_cancel() }
+      |> UIButton.lens.title(forState: .normal) %~ { _ in Strings.discovery_search_cancel() }
 
-    self.searchBarContainerView
+    _ = self.searchBarContainerView
       |> roundedStyle()
-      |> UIView.lens.backgroundColor .~ .ksr_grey_200
+      |> UIView.lens.backgroundColor .~ .ksr_grey_300
 
-    self.searchIconImageView
+    _ = self.searchIconImageView
       |> UIImageView.lens.tintColor .~ .ksr_navy_500
       |> UIImageView.lens.image .~ image(named: "search-icon")
 
-    self.searchStackView
+    _ = self.searchStackView
       |> UIStackView.lens.spacing .~ Styles.grid(1)
 
-    self.searchTextField
+    _ = self.searchTextField
       |> UITextField.lens.font .~ .ksr_body(size: 14)
       |> UITextField.lens.textColor .~ .ksr_text_navy_700
       |> UITextField.lens.placeholder %~ { _ in Strings.tabbar_search() }
 
-    self.tableView
-      |> UITableView.lens.keyboardDismissMode .~ .OnDrag
-
-    self.navigationController
-      ?|> UINavigationController.lens.navigationBar.barTintColor .~ .whiteColor()
-
-    self.navigationController?.navigationBar
-      ?|> baseNavigationBarStyle
+    _ = self.tableView
+      |> UITableView.lens.keyboardDismissMode .~ .onDrag
   }
 
+  // swiftlint:disable:next function_body_length
   internal override func bindViewModel() {
 
     self.viewModel.outputs.projects
-      .observeForControllerAction()
-      .observeNext { [weak self] projects in
+      .observeForUI()
+      .observeValues { [weak self] projects in
         self?.dataSource.load(projects: projects)
         self?.tableView.reloadData()
+        self?.updateProjectPlaylist(projects)
     }
 
     self.viewModel.outputs.isPopularTitleVisible
-      .observeForControllerAction()
-      .observeNext { [weak self] visible in
+      .observeForUI()
+      .observeValues { [weak self] visible in
         self?.dataSource.popularTitle(isVisible: visible)
+        self?.tableView.reloadData()
+    }
+
+    self.viewModel.outputs.searchLoaderIndicatorIsAnimating
+      .observeForUI()
+      .observeValues { [weak self] isAnimating in
+        guard let _self = self else { return }
+        _self.tableView.tableHeaderView = isAnimating ? _self.searchLoaderIndicator :  nil
+        if let headerView = _self.tableView.tableHeaderView {
+          headerView.frame = CGRect(x: headerView.frame.origin.x,
+                                    y: headerView.frame.origin.y,
+                                    width: headerView.frame.size.width,
+                                    height: Styles.grid(15))
+        }
+    }
+
+    self.viewModel.outputs.popularLoaderIndicatorIsAnimating
+      .observeForUI()
+      .observeValues { [weak self] isAnimating in
+        guard let _self = self else { return }
+        _self.tableView.tableHeaderView = isAnimating ? _self.popularLoaderIndicator :  nil
+        if let headerView = _self.tableView.tableHeaderView {
+          headerView.frame = CGRect(x: headerView.frame.origin.x,
+                                    y: headerView.frame.origin.y,
+                                    width: headerView.frame.size.width,
+                                    height: Styles.grid(15))
+        }
+    }
+
+    self.viewModel.outputs.showEmptyState
+      .observeForUI()
+      .observeValues { [weak self] params, visible in
+        self?.dataSource.load(params: params, visible: visible)
         self?.tableView.reloadData()
     }
 
     self.viewModel.outputs.goToProject
       .observeForControllerAction()
-      .observeNext { [weak self] project, projects, refTag in
+      .observeValues { [weak self] project, projects, refTag in
         self?.goTo(project: project, projects: projects, refTag: refTag)
     }
 
     self.searchTextField.rac.text = self.viewModel.outputs.searchFieldText
     self.searchTextField.rac.isFirstResponder = self.viewModel.outputs.resignFirstResponder.mapConst(false)
 
+    self.searchLoaderIndicator.rac.animating = self.viewModel.outputs.searchLoaderIndicatorIsAnimating
+    self.popularLoaderIndicator.rac.animating = self.viewModel.outputs.popularLoaderIndicatorIsAnimating
+
     self.viewModel.outputs.changeSearchFieldFocus
-      .observeForControllerAction()
-      .observeNext { [weak self] in
+      .observeForControllerAction() // NB: don't change this until we figure out the deadlock problem.
+      .observeValues { [weak self] in
         self?.changeSearchFieldFocus(focus: $0, animated: $1)
+    }
+
+    // NB: Currently running a feature on a subset of users to test out if `observeForUI` is still crashing.
+    if AppEnvironment.current.config?.features["ios_scroll_output_observe_for_ui"] == .some(true) {
+      self.viewModel.outputs.scrollToProjectRow
+        .observeForUI()
+        .observeValues { [weak self] in self?.scrollToProjectRow($0) }
+    } else {
+      self.viewModel.outputs.scrollToProjectRow
+        .observeForControllerAction()
+        .observeValues { [weak self] in self?.scrollToProjectRow($0) }
     }
   }
 
-  private func goTo(project project: Project, projects: [Project], refTag: RefTag) {
+  private func scrollToProjectRow(_ row: Int) {
+    self.tableView.scrollToRow(at: self.dataSource.indexPath(forProjectRow: row), at: .top, animated: false)
+  }
+
+  fileprivate func goTo(project: Project, projects: [Project], refTag: RefTag) {
     let vc = ProjectNavigatorViewController.configuredWith(project: project,
                                                            refTag: refTag,
                                                            initialPlaylist: projects,
                                                            navigatorDelegate: self)
-    self.presentViewController(vc, animated: true, completion: nil)
+    self.present(vc, animated: true, completion: nil)
   }
 
-  private func changeSearchFieldFocus(focus focus: Bool, animated: Bool) {
-    UIView.animateWithDuration(0.2 * (animated ? 1.0 : 0.0)) {
+  fileprivate func changeSearchFieldFocus(focus: Bool, animated: Bool) {
+    UIView.animate(withDuration: 0.2 * (animated ? 1.0 : 0.0), animations: {
       if focus {
-        self.searchBarCenterConstraint.active = false
-        self.searchBarLeadingConstraint.active = true
-        self.searchBarTrailingConstraint.active = true
-        self.cancelButton.hidden = false
+        self.searchBarCenterConstraint.isActive = false
+        self.searchBarLeadingConstraint.isActive = true
+        self.searchBarTrailingConstraint.isActive = true
+        self.cancelButton.isHidden = false
         self.searchTextField.becomeFirstResponder()
       } else {
-        self.searchBarCenterConstraint.active = true
-        self.searchBarLeadingConstraint.active = false
-        self.searchBarTrailingConstraint.active = false
-        self.cancelButton.hidden = true
+        self.searchBarCenterConstraint.isActive = true
+        self.searchBarLeadingConstraint.isActive = false
+        self.searchBarTrailingConstraint.isActive = false
+        self.cancelButton.isHidden = true
         self.searchTextField.resignFirstResponder()
       }
       self.view.layoutIfNeeded()
-    }
+    })
   }
 
-  internal override func tableView(tableView: UITableView, didSelectRowAtIndexPath indexPath: NSIndexPath) {
+  internal override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
     guard let project = self.dataSource[indexPath] as? Project else {
       return
     }
@@ -154,41 +212,49 @@ internal final class SearchViewController: UITableViewController {
     self.viewModel.inputs.tapped(project: project)
   }
 
-  internal override func tableView(tableView: UITableView,
-                                   willDisplayCell cell: UITableViewCell,
-                                   forRowAtIndexPath indexPath: NSIndexPath) {
+  internal override func tableView(_ tableView: UITableView,
+                                   willDisplay cell: UITableViewCell,
+                                   forRowAt indexPath: IndexPath) {
 
     self.viewModel.inputs.willDisplayRow(self.dataSource.itemIndexAt(indexPath),
                                          outOf: self.dataSource.numberOfItems())
   }
 
-  @objc private func searchTextChanged(textField: UITextField) {
+  private func updateProjectPlaylist(_ playlist: [Project]) {
+    guard let navigator = self.presentedViewController as? ProjectNavigatorViewController else { return }
+    navigator.updatePlaylist(playlist)
+  }
+
+  @objc fileprivate func searchTextChanged(_ textField: UITextField) {
     self.viewModel.inputs.searchTextChanged(textField.text ?? "")
   }
 
-  @objc private func searchTextEditingDidEnd() {
+  @objc fileprivate func searchTextEditingDidEnd() {
     self.viewModel.inputs.searchTextEditingDidEnd()
   }
 
-  @objc private func cancelButtonPressed() {
+  @objc fileprivate func cancelButtonPressed() {
     self.viewModel.inputs.cancelButtonPressed()
   }
 
-  @objc private func searchBarContainerTapped() {
+  @objc fileprivate func searchBarContainerTapped() {
     self.viewModel.inputs.searchFieldDidBeginEditing()
   }
 }
 
 extension SearchViewController: UITextFieldDelegate {
-  internal func textFieldDidBeginEditing(textField: UITextField) {
+  internal func textFieldDidBeginEditing(_ textField: UITextField) {
     self.viewModel.inputs.searchFieldDidBeginEditing()
   }
 
-  internal func textFieldShouldClear(textField: UITextField) -> Bool {
+  internal func textFieldShouldClear(_ textField: UITextField) -> Bool {
     self.viewModel.inputs.clearSearchText()
     return true
   }
 }
 
 extension SearchViewController: ProjectNavigatorDelegate {
+  func transitionedToProject(at index: Int) {
+    self.viewModel.inputs.transitionedToProject(at: index, outOf: self.dataSource.numberOfItems())
+  }
 }

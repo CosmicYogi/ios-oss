@@ -1,12 +1,12 @@
 import KsApi
 import Prelude
-import ReactiveCocoa
+import ReactiveSwift
 import ReactiveExtensions
 import Result
 
 public protocol BackingViewModelInputs {
   /// Configures the view model with a project.
-  func configureWith(project project: Project, backer: User?)
+  func configureWith(project: Project, backer: User?)
 
   /// Call when the "Message creator" button is pressed.
   func messageCreatorTapped()
@@ -20,7 +20,7 @@ public protocol BackingViewModelInputs {
 
 public protocol BackingViewModelOutputs {
   /// Emits the backer avatar to be displayed.
-  var backerAvatarURL: Signal<NSURL?, NoError> { get }
+  var backerAvatarURL: Signal<URL?, NoError> { get }
 
   /// Emits the backer name to be displayed.
   var backerName: Signal<String, NoError> { get }
@@ -64,6 +64,12 @@ public protocol BackingViewModelOutputs {
   /// Emits the accessibility label for backer's description of shipping.
   var backerShippingDescriptionAccessibilityLabel: Signal<String, NoError> { get }
 
+  /// Emits the estimated delivery date.
+  var estimatedDeliveryDateLabelText: Signal<String, NoError> { get }
+
+  /// Emits a boolean that determines if estimated deliver should be hidden.
+  var estimatedDeliveryStackViewHidden: Signal<Bool, NoError> { get }
+
   /// Emits with the project when should go to message creator screen.
   var goToMessageCreator: Signal<(MessageSubject, Koala.MessageDialogContext), NoError> { get }
 
@@ -72,6 +78,9 @@ public protocol BackingViewModelOutputs {
 
   /// Emits a boolean that determines if the actions stackview should be hidden.
   var hideActionsStackView: Signal<Bool, NoError> { get }
+
+  /// Emits whether loading overlay view should be hidden.
+  var loadingOverlayIsHidden: Signal<Bool, NoError> { get }
 
   /// Emits the button title for messaging a backer or creator.
   var messageButtonTitleText: Signal<String, NoError> { get }
@@ -89,8 +98,8 @@ public final class BackingViewModel: BackingViewModelType, BackingViewModelInput
 
   // swiftlint:disable function_body_length
   public init() {
-    let projectAndBackerAndBackerIsCurrentUser = combineLatest(
-      self.projectAndBackerProperty.signal.ignoreNil(),
+    let projectAndBackerAndBackerIsCurrentUser = Signal.combineLatest(
+      self.projectAndBackerProperty.signal.skipNil(),
       self.viewDidLoadProperty.signal
       )
       .map(first)
@@ -103,61 +112,79 @@ public final class BackingViewModel: BackingViewModelType, BackingViewModelInput
         return (project, backer, currentUser == backer)
     }
 
-    let projectAndBackingAndBackerIsCurrentUser = projectAndBackerAndBackerIsCurrentUser
+    let projectAndBackingAndBackerIsCurrentUserEvent = projectAndBackerAndBackerIsCurrentUser
       .switchMap { project, backer, backerIsCurrentUser in
         AppEnvironment.current.apiService.fetchBacking(forProject: project, forUser: backer)
-          .demoteErrors()
+          .ksr_delay(AppEnvironment.current.apiDelayInterval, on: AppEnvironment.current.scheduler)
           .map { (project, $0, backerIsCurrentUser) }
+          .materialize()
     }
+
+    let projectAndBackingAndBackerIsCurrentUser = projectAndBackingAndBackerIsCurrentUserEvent.values()
 
     let project = projectAndBackingAndBackerIsCurrentUser.map(first)
     let backing = projectAndBackingAndBackerIsCurrentUser.map(second)
-    let reward = backing.map { $0.reward }.ignoreNil()
+    let reward = backing.map { $0.reward }.skipNil()
 
-    self.backerSequence = backing
-      .map { Strings.backer_modal_backer_number(backer_number: Format.wholeNumber($0.sequence)) }
+    self.backerSequence = backing.map {
+      Strings.backer_modal_backer_number(backer_number: Format.wholeNumber($0.sequence))
+    }
     self.backerSequenceAccessibilityLabel = self.backerSequence
 
     let backer = projectAndBackerAndBackerIsCurrentUser.map(second)
 
-    self.backerName = backer.map { $0.name }
+    self.loadingOverlayIsHidden = Signal.merge(
+      self.viewDidLoadProperty.signal.mapConst(false),
+      projectAndBackingAndBackerIsCurrentUserEvent.filter { $0.isTerminating }.mapConst(true)
+    )
+
+    self.backerName = backer.map { backer in backer.name }
+
     self.backerNameAccessibilityLabel = self.backerName
 
-    self.backerAvatarURL = backer.map { NSURL(string: $0.avatar.small) }
+    self.backerAvatarURL = backer.map { URL(string: $0.avatar.small) }
 
     self.backerPledgeStatus = backing
       .map { Strings.backer_modal_status_backing_status( backing_status: statusString($0.status)) }
-
     self.backerPledgeStatusAccessibilityLabel = self.backerPledgeStatus
 
-    self.backerPledgeAmountAndDate = projectAndBackingAndBackerIsCurrentUser
-      .map { project, backing, _ in
-        Strings.backer_modal_pledge_amount_on_pledge_date(
-          pledge_amount: Format.currency(backing.amount, country: project.country),
-          pledge_date: Format.date(
-            secondsInUTC: backing.pledgedAt,
-            dateStyle: .LongStyle,
-            timeStyle: .NoStyle
-          )
-        )
-    }
+    self.backerPledgeAmountAndDate = projectAndBackingAndBackerIsCurrentUser.map { project, backing, _ in
+      Strings.backer_modal_pledge_amount_on_pledge_date(
+        pledge_amount: Format.currency(backing.amount, country: project.country),
+        pledge_date: Format.date(
+          secondsInUTC: backing.pledgedAt,
+          dateStyle: .long,
+          timeStyle: .none
+      )
+    )
+  }
     self.backerPledgeAmountAndDateAccessibilityLabel = self.backerPledgeAmountAndDate.map { "Pledged " + $0 }
 
-    self.backerRewardDescription = combineLatest(project, reward)
+    self.backerRewardDescription = Signal.combineLatest(project, reward)
       .map { project, reward in
         Strings.backer_modal_reward_amount_reward_description(
           reward_amount: Format.currency(reward.minimum, country: project.country),
           reward_description: reward.description
         )
     }
+
     self.backerRewardDescriptionAccessibilityLabel = self.backerRewardDescription
 
-    self.backerShippingDescription = reward.map { $0.shipping.summary }.ignoreNil()
+    self.backerShippingDescription = reward.map { $0.shipping.summary  ?? "N/A" }
     self.backerShippingDescriptionAccessibilityLabel = self.backerShippingDescription
 
     self.backerShippingAmount = projectAndBackingAndBackerIsCurrentUser
       .map { project, backing, _ in Format.currency(backing.shippingAmount ?? 0, country: project.country) }
     self.backerShippingAmountAccessibilityLabel = self.backerShippingAmount
+
+    self.estimatedDeliveryDateLabelText = reward.map {
+      $0.estimatedDeliveryOn.map {
+        Format.date(secondsInUTC: $0, dateFormat: "MMMM yyyy", timeZone: UTCTimeZone) }
+      }
+      .skipNil()
+
+    self.estimatedDeliveryStackViewHidden = reward
+      .map { $0.estimatedDeliveryOn == nil }
 
     self.goToMessages = projectAndBackingAndBackerIsCurrentUser
       .map { project, backing, _ in (project, backing) }
@@ -184,33 +211,33 @@ public final class BackingViewModel: BackingViewModelType, BackingViewModelInput
     }
 
     self.rootStackViewAxis = projectAndBackingAndBackerIsCurrentUser
-      .map { _ in AppEnvironment.current.language == .en ? .Horizontal : .Vertical }
+      .map { _ in AppEnvironment.current.language == .en ? .horizontal : .vertical }
 
-    project.observeNext { AppEnvironment.current.koala.trackViewedPledge(forProject: $0) }
+    project.observeValues { AppEnvironment.current.koala.trackViewedPledge(forProject: $0) }
   }
   // swiftlint:enable function_body_length
 
-  private let messageCreatorTappedProperty = MutableProperty()
+  fileprivate let messageCreatorTappedProperty = MutableProperty()
   public func messageCreatorTapped() {
     self.messageCreatorTappedProperty.value = ()
   }
 
-  private let projectAndBackerProperty = MutableProperty<(Project, User?)?>(nil)
-  public func configureWith(project project: Project, backer: User?) {
+  fileprivate let projectAndBackerProperty = MutableProperty<(Project, User?)?>(nil)
+  public func configureWith(project: Project, backer: User?) {
     self.projectAndBackerProperty.value = (project, backer)
   }
 
-  private let viewDidLoadProperty = MutableProperty()
+  fileprivate let viewDidLoadProperty = MutableProperty()
   public func viewDidLoad() {
     self.viewDidLoadProperty.value = ()
   }
 
-  private let viewMessagesTappedProperty = MutableProperty()
+  fileprivate let viewMessagesTappedProperty = MutableProperty()
   public func viewMessagesTapped() {
     self.viewMessagesTappedProperty.value = ()
   }
 
-  public let backerAvatarURL: Signal<NSURL?, NoError>
+  public let backerAvatarURL: Signal<URL?, NoError>
   public let backerName: Signal<String, NoError>
   public let backerNameAccessibilityLabel: Signal<String, NoError>
   public let backerPledgeAmountAndDate: Signal<String, NoError>
@@ -225,9 +252,12 @@ public final class BackingViewModel: BackingViewModelType, BackingViewModelInput
   public let backerShippingAmountAccessibilityLabel: Signal<String, NoError>
   public let backerShippingDescription: Signal<String, NoError>
   public let backerShippingDescriptionAccessibilityLabel: Signal<String, NoError>
+  public let estimatedDeliveryDateLabelText: Signal<String, NoError>
+  public let estimatedDeliveryStackViewHidden: Signal<Bool, NoError>
   public let goToMessageCreator: Signal<(MessageSubject, Koala.MessageDialogContext), NoError>
   public let goToMessages: Signal<(Project, Backing), NoError>
   public let hideActionsStackView: Signal<Bool, NoError>
+  public let loadingOverlayIsHidden: Signal<Bool, NoError>
   public let messageButtonTitleText: Signal<String, NoError>
   public let rootStackViewAxis: Signal<UILayoutConstraintAxis, NoError>
 
@@ -235,7 +265,7 @@ public final class BackingViewModel: BackingViewModelType, BackingViewModelInput
   public var outputs: BackingViewModelOutputs { return self }
 }
 
-private func statusString(forStatus: Backing.Status) -> String {
+private func statusString(_ forStatus: Backing.Status) -> String {
     switch forStatus {
     case .canceled:
       return Strings.project_view_pledge_status_canceled()

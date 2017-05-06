@@ -1,4 +1,5 @@
 import Argo
+import Runes
 import KsApi
 
 public enum RefTag {
@@ -13,13 +14,22 @@ public enum RefTag {
   case discovery
   case discoveryPotd
   case discoveryWithSort(DiscoveryParams.Sort)
+  case liveStream
+  case liveStreamCountdown
+  case liveStreamDiscovery
+  case liveStreamReplay
   case messageThread
   case profileBacked
+  case profileSaved
+  case projectPage
   case push
   case recommended
   case recommendedWithSort(DiscoveryParams.Sort)
   case recsWithSort(DiscoveryParams.Sort)
   case search
+  case searchFeatured
+  case searchPopular
+  case searchPopularFeatured
   case social
   case socialWithSort(DiscoveryParams.Sort)
   case starredWithSort(DiscoveryParams.Sort)
@@ -58,8 +68,14 @@ public enum RefTag {
     case "discovery_newest":          self = .discoveryWithSort(.newest)
     case "discovery_popular":         self = .discoveryWithSort(.popular)
     case "discovery_potd":            self = .discoveryPotd
+    case "live_stream":               self = .liveStream
+    case "live_stream_countdown":     self = .liveStreamCountdown
+    case "live_stream_discovery":     self = .liveStreamDiscovery
+    case "live_stream_replay":        self = .liveStreamReplay
     case "message_thread":            self = .messageThread
     case "profile_backed":            self = .profileBacked
+    case "profile_saved":             self = .profileSaved
+    case "project_page":              self = .projectPage
     case "push":                      self = .push
     case "recommended":               self = .recommended
     case "recommended_ending_soon":   self = .recommendedWithSort(.endingSoon)
@@ -73,6 +89,9 @@ public enum RefTag {
     case "recs_newest":               self = .recsWithSort(.newest)
     case "recs_popular":              self = .recsWithSort(.popular)
     case "search":                    self = .search
+    case "search_featured":           self = .searchFeatured
+    case "search_popular":            self = .searchPopular
+    case "search_popular_featured":   self = .searchPopularFeatured
     case "social":                    self = .social
     case "social_ending_soon":        self = .socialWithSort(.endingSoon)
     case "social_home":               self = .socialWithSort(.magic)
@@ -117,10 +136,22 @@ public enum RefTag {
       return "discovery_potd"
     case let .discoveryWithSort(sort):
       return "discovery" + sortRefTagSuffix(sort)
+    case .liveStream:
+      return "live_stream"
+    case .liveStreamCountdown:
+      return "live_stream_countdown"
+    case .liveStreamDiscovery:
+      return "live_stream_discovery"
+    case .liveStreamReplay:
+      return "live_stream_replay"
     case .messageThread:
       return "message_thread"
     case .profileBacked:
       return "profile_backed"
+    case .profileSaved:
+      return "profile_saved"
+    case .projectPage:
+      return "project_page"
     case .push:
       return "push"
     case .recommended:
@@ -131,6 +162,12 @@ public enum RefTag {
       return "recs" + sortRefTagSuffix(sort)
     case .search:
       return "search"
+    case .searchFeatured:
+      return "search_featured"
+    case .searchPopular:
+      return "search_popular"
+    case .searchPopularFeatured:
+      return "search_popular_featured"
     case .social:
       return "social"
     case let .socialWithSort(sort):
@@ -154,9 +191,12 @@ public func == (lhs: RefTag, rhs: RefTag) -> Bool {
   case (.activity, .activity), (.category, .category), (.categoryFeatured, .categoryFeatured),
     (.activitySample, .activitySample), (.city, .city), (.dashboard, .dashboard),
     (.dashboardActivity, .dashboardActivity), (.discovery, .discovery), (.discoveryPotd, .discoveryPotd),
-    (.messageThread, .messageThread), (.profileBacked, .profileBacked), (.push, .push),
-    (.recommended, .recommended), (.search, .search), (.social, .social), (.thanks, .thanks),
-    (.update, .update):
+    (.liveStreamCountdown, .liveStreamCountdown), (.liveStreamDiscovery, .liveStreamDiscovery),
+    (.liveStreamReplay, .liveStreamReplay), (.messageThread, .messageThread),
+    (.profileBacked, .profileBacked), (.profileSaved, .profileSaved), (.projectPage, .projectPage),
+    (.push, .push), (.recommended, .recommended), (.search, .search), (.searchFeatured, .searchFeatured),
+    (.searchPopular, .searchPopular), (.searchPopularFeatured, .searchPopularFeatured), (.social, .social),
+    (.thanks, .thanks), (.update, .update):
     return true
   case let (.categoryWithSort(lhs), .categoryWithSort(rhs)):
     return lhs == rhs
@@ -189,7 +229,7 @@ extension RefTag: Hashable {
   }
 }
 
-private func sortRefTagSuffix(sort: DiscoveryParams.Sort) -> String {
+private func sortRefTagSuffix(_ sort: DiscoveryParams.Sort) -> String {
   switch sort {
   case .endingSoon:
     return "_ending_soon"
@@ -205,12 +245,12 @@ private func sortRefTagSuffix(sort: DiscoveryParams.Sort) -> String {
 }
 
 extension RefTag: Decodable {
-  public static func decode(json: JSON) -> Decoded<RefTag> {
+  public static func decode(_ json: JSON) -> Decoded<RefTag> {
     switch json {
-    case let .String(code):
-      return .Success(RefTag(code: code))
+    case let .string(code):
+      return .success(RefTag(code: code))
     default:
-      return .Failure(.Custom("RefTag code must be a string."))
+      return .failure(.custom("RefTag code must be a string."))
     }
   }
 }

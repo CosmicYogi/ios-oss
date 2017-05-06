@@ -5,8 +5,8 @@ import UIKit
 
 internal final class PledgeTitleCell: UITableViewCell, ValueCell {
 
-  @IBOutlet private weak var pledgeTitleLabel: UILabel!
-  @IBOutlet private weak var separatorView: UIView!
+  @IBOutlet fileprivate weak var pledgeTitleLabel: UILabel!
+  @IBOutlet fileprivate weak var separatorView: UIView!
 
   func configureWith(value project: Project) {
     self.contentView.backgroundColor = Library.backgroundColor(forCategoryId: project.category.rootId)
@@ -29,16 +29,16 @@ internal final class PledgeTitleCell: UITableViewCell, ValueCell {
   internal override func bindStyles() {
     super.bindStyles()
 
-    self
+    _ = self
       |> baseTableViewCellStyle()
-      |> (UITableViewCell.lens.contentView • UIView.lens.layoutMargins) %~~ { margins, cell in
+      |> (UITableViewCell.lens.contentView..UIView.lens.layoutMargins) %~~ { margins, cell in
         .init(top: Styles.grid(3),
               left: cell.traitCollection.isRegularRegular ? Styles.grid(20) : margins.left * 2,
               bottom: Styles.grid(2),
               right: cell.traitCollection.isRegularRegular ? Styles.grid(20) : margins.right * 2)
       }
 
-    self.pledgeTitleLabel
+    _ = self.pledgeTitleLabel
       |> UILabel.lens.numberOfLines .~ 0
 
   }
